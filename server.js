@@ -12,7 +12,7 @@ app.get('/', (req, res) => {
     <body>
       <h2>iframe-proxy</h2>
       <p>Usage: <code>/proxy?url=https%3A%2F%2Fexample.com</code></p>
-      <p>Example: <a href="/proxy?url=https%3A%2F%2Fexample.com">/proxy?url=https%3A%2F%2Fexample.com</a></p>
+      <p>Example: <a href="/proxy?url=https%3A%2F%2Fgoogle.com">/proxy?url=https%3A%2F%2Fgoogle.com</a></p>
     </body>
   </html>`);
 });
@@ -48,13 +48,11 @@ app.get('/proxy', async (req, res) => {
     if (upstream.headers['content-type']?.includes('text/html')) {
       let html = body.toString('utf-8');
       const baseUrl = new URL(targetUrl).origin;
-      
       html = html.replace(/(src|href)=["'](?!(?:https?:|\/\/|data:))([^"']+)["']/g, (match, attr, url) => {
         const absolute = new URL(url, baseUrl).href;
         const encoded = encodeURIComponent(absolute);
         return `${attr}="http://localhost:${PORT}/proxy?url=${encoded}"`;
       });
-
       body = Buffer.from(html, 'utf-8');
       res.set('Content-Length', body.length);
     }
