@@ -28,7 +28,7 @@ app.get('/proxy', async (req, res) => {
     }
 
     const upstream = await axios.get(targetUrl, {
-      responseType: 'stream',
+      responseType: 'arraybuffer',
       headers: { 'User-Agent': 'Mozilla/5.0' },
       validateStatus: null
     });
@@ -36,15 +36,31 @@ app.get('/proxy', async (req, res) => {
     const drop = new Set([
       'connection','keep-alive','proxy-authenticate','proxy-authorization',
       'te','trailer','transfer-encoding','upgrade',
-      'x-frame-options','content-security-policy','frame-options'
+      'x-frame-options','content-security-policy'
     ]);
 
     Object.entries(upstream.headers).forEach(([k, v]) => {
       if (!drop.has(k.toLowerCase())) res.set(k, v);
     });
 
+    let body = upstream.data;
+
+    if (upstream.headers['content-type']?.includes('text/html')) {
+      let html = body.toString('utf-8');
+      const baseUrl = new URL(targetUrl).origin;
+      
+      html = html.replace(/(src|href)=["'](?!(?:https?:|\/\/|data:))([^"']+)["']/g, (match, attr, url) => {
+        const absolute = new URL(url, baseUrl).href;
+        const encoded = encodeURIComponent(absolute);
+        return `${attr}="http://localhost:${PORT}/proxy?url=${encoded}"`;
+      });
+
+      body = Buffer.from(html, 'utf-8');
+      res.set('Content-Length', body.length);
+    }
+
     res.status(upstream.status);
-    upstream.data.pipe(res);
+    res.send(body);
   } catch (err) {
     if (err.response) res.status(err.response.status || 502).send(err.response.statusText || 'Upstream error');
     else res.status(500).send(err.message);
