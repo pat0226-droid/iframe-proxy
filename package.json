@@ -6,8 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [proxy, iframe],
+  "author": "Nick Patel",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
