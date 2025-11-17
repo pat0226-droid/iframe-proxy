@@ -3,14 +3,16 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const zlib = require('zlib');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enable CORS for all routes
 app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Helper: rewrite HTML asset paths to go through /proxy
+// Helper: rewrite HTML asset paths and form actions to go through /proxy
 function rewriteHtmlBody(body, upstreamUrl) {
   if (!/<!DOCTYPE|<html|<head|<body/i.test(body)) return body;
 
@@ -30,30 +32,37 @@ function rewriteHtmlBody(body, upstreamUrl) {
     .replace(/(<a[^>]*\bhref=["'])([^"']+)(["'][^>]*>)/gi, (_, pre, url, post) => `${pre}${toProxy(url)}${post}`)
     .replace(/(<img[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi, (_, pre, url, post) => `${pre}${toProxy(url)}${post}`)
     .replace(/(<script[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi, (_, pre, url, post) => `${pre}${toProxy(url)}${post}`)
-    .replace(/(<link[^>]*\bhref=["'])([^"']+)(["'][^>]*>)/gi, (_, pre, url, post) => `${pre}${toProxy(url)}${post}`);
+    .replace(/(<link[^>]*\bhref=["'])([^"']+)(["'][^>]*>)/gi, (_, pre, url, post) => `${pre}${toProxy(url)}${post}`)
+    .replace(/(<form[^>]*\baction=["'])([^"']+)(["'][^>]*>)/gi, (_, pre, url, post) => `${pre}${toProxy(url)}${post}`)
+    .replace(/<meta[^>]+http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
 }
 
-// Proxy endpoint
-app.get('/proxy', async (req, res) => {
+// Shared proxy logic
+async function handleProxy(req, res, method) {
   const targetUrl = req.query.url;
   if (!targetUrl) {
     return res.status(400).json({ error: 'Missing ?url= parameter' });
   }
 
   try {
-    const response = await axios.get(targetUrl, {
+    const options = {
+      method,
+      url: targetUrl,
       responseType: 'arraybuffer',
       validateStatus: () => true,
       headers: {
-        // Respect robots policy: set a clear UA
         'User-Agent': 'NickProxy/1.0 (+http://localhost:3000)',
       },
-    });
+    };
+    if (method === 'POST') {
+      options.data = req.body;
+    }
+
+    const response = await axios(options);
 
     // Copy headers with adjustments
     Object.entries(response.headers).forEach(([key, value]) => {
       if (!value) return;
-
       const lower = key.toLowerCase();
 
       if (lower === 'x-frame-options') return;
@@ -86,12 +95,21 @@ app.get('/proxy', async (req, res) => {
       res.setHeader(key, value);
     });
 
+    // Decompress if needed
+    let data = response.data;
+    const encoding = response.headers['content-encoding'];
+    if (encoding === 'gzip') {
+      data = zlib.gunzipSync(data);
+    } else if (encoding === 'deflate') {
+      data = zlib.inflateSync(data);
+    }
+
     // Rewrite HTML if needed
     const contentType = response.headers['content-type'] || '';
-    let body = response.data;
+    let body = data;
 
     if (/text\/html/i.test(contentType)) {
-      const text = response.data.toString('utf8');
+      const text = data.toString('utf8');
       const rewritten = rewriteHtmlBody(text, targetUrl);
       body = Buffer.from(rewritten, 'utf8');
       res.setHeader('content-length', Buffer.byteLength(body));
@@ -103,14 +121,17 @@ app.get('/proxy', async (req, res) => {
     console.error('[proxy error]', err.message);
     res.status(502).json({ error: 'Upstream unreachable or failed.' });
   }
-});
+}
 
-// Index page
+// Routes
+app.get('/proxy', (req, res) => handleProxy(req, res, 'GET'));
+app.post('/proxy', (req, res) => handleProxy(req, res, 'POST'));
+
 app.get('/', (req, res) => {
   res.type('html').send(`
     <h1>HTTP Proxy with iframe + DHTML rewriting</h1>
     <p>Use: <code>/proxy?url=https://example.com</code></p>
-    <iframe src="/proxy?url=https://example.com" style="width:100%;height:400px;border:1px solid #ccc;"></iframe>
+    <iframe src="/proxy?url=https://duckduckgo.com/html/" style="width:100%;height:400px;border:1px solid #ccc;"></iframe>
   `);
 });
 
