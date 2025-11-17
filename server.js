@@ -6,7 +6,7 @@ const axios = require('axios');
 const zlib = require('zlib');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000; // Always use port 3000
 
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
@@ -132,10 +132,11 @@ app.get('/', (req, res) => {
   res.type('html').send(`
     <h1>HTTP Proxy with iframe + DHTML rewriting</h1>
     <p>Use: <code>/proxy?url=https://example.com</code></p>
-    <iframe src="/proxy?url=https://duckduckgo.com/html/" style="width:100%;height:400px;border:1px solid #ccc;"></iframe>
+    <iframe src="/proxy?url=https://wikipedia.org" style="width:100%;height:400px;border:1px solid #ccc;"></iframe>
   `);
 });
 
 app.listen(PORT, () => {
   console.log(`HTTP proxy listening on http://localhost:${PORT}`);
 });
+
